@@ -1,0 +1,10 @@
+# Lokalno okruzenje (Windows, bez GPU) - sluzi za pisanje i proveru koda
+tensorflow-cpu==2.16.2
+numpy==1.26.4
+pandas==2.2.2
+scikit-learn==1.5.1
+matplotlib==3.9.2
+seaborn==0.13.2
+Pillow==10.4.0
+PyYAML==6.0.2
+keras-tuner==1.4.7

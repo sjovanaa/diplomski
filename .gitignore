@@ -1,0 +1,8 @@
+podaci/
+rezultati/
+.venv/
+.idea/
+__pycache__/
+*.keras
+*.h5
+*.zip

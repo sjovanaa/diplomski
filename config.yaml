@@ -1,0 +1,38 @@
+# ============================================================
+# Centralna konfiguracija eksperimenta
+# Svi hiperparametri se menjaju iskljucivo ovde, nikada u kodu.
+# Ovim se obezbedjuje reproduktivnost rezultata.
+# ============================================================
+
+seed: 42                    # fiksno seme za sve izvore slucajnosti
+
+slika:
+  visina: 224               # ulazna dimenzija ResNet50/DenseNet121/EfficientNetB0
+  sirina: 224
+  kanali: 3                 # ImageNet tezine ocekuju tri kanala
+
+podaci:
+  udeo_validacionog: 0.15   # udeo trening skupa izdvojen za validaciju
+  batch_size: 32
+  mesaj_bafer: 2048
+
+augmentacija:               # primenjuje se iskljucivo na trening skup
+  rotacija: 0.05            # +/- 5% punog kruga (~18 stepeni)
+  zum: 0.10
+  pomeraj: 0.05
+  kontrast: 0.10
+  horizontalno_ogledalo: false   # rendgen grudnog kosa ima fiksnu orijentaciju
+
+trening:
+  epohe_glava: 15           # faza 1: obucava se samo klasifikaciona glava
+  epohe_finog: 10           # faza 2: fino podesavanje gornjih slojeva osnove
+  lr_glava: 0.001
+  lr_finog: 0.00001         # znatno manja stopa da se ne unistе naucena obelezja
+  strpljenje: 5             # EarlyStopping: broj epoha bez napretka
+  koristi_tezine_klasa: true
+
+modeli:                     # modeli koji ulaze u poredjenje
+  - cnn_od_nule
+  - resnet50
+  - densenet121
+  - efficientnetb0
