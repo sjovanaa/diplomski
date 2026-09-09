@@ -11,16 +11,14 @@ KOREN_PROJEKTA = Path(__file__).resolve().parent.parent
 KAGGLE_SKUP = "prashant268/chest-xray-covid19-pneumonia"
 
 def _trazi_koren(baza: Path):
-    for nivo1 in [baza] + [d for d in baza.iterdir() if d.is_dir()]:
-        if (nivo1 / "train").is_dir() and (nivo1 / "test").is_dir():
-            return nivo1
-        for nivo2 in [d for d in nivo1.iterdir() if d.is_dir()]:
-            if (nivo2 / "train").is_dir() and (nivo2 / "test").is_dir():
-                return nivo2
-            for nivo3 in [d for d in nivo2.iterdir() if d.is_dir()]:
-                if (nivo3 / "train").is_dir() and (nivo3 / "test").is_dir():
-                    return nivo3
-
+    """Trazi direktorijum sa podfolderima train i test, na bilo kojoj dubini."""
+    if not baza.exists():
+        return None
+    if (baza / "train").is_dir() and (baza / "test").is_dir():
+        return baza
+    for p in baza.rglob("train"):
+        if p.is_dir() and (p.parent / "test").is_dir():
+            return p.parent
     return None
 
 
