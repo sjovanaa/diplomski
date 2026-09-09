@@ -20,6 +20,7 @@ def _trazi_koren(baza: Path):
             for nivo3 in [d for d in nivo2.iterdir() if d.is_dir()]:
                 if (nivo3 / "train").is_dir() and (nivo3 / "test").is_dir():
                     return nivo3
+
     return None
 
 

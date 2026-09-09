@@ -174,9 +174,9 @@ def pripremi_sve(cfg: dict = None, ogranici: int = None):
     klase = imena_klasa(df)
 
     if ogranici:
-        df = (df.groupby(["podskup", "klasa"], group_keys=False)
-                .apply(lambda g: g.sample(min(len(g), ogranici),
-                                          random_state=cfg["seed"])))
+        delovi = [g.sample(min(len(g), ogranici), random_state=cfg["seed"])
+                  for _, g in df.groupby(["podskup", "klasa"])]
+        df = pd.concat(delovi, ignore_index=True)
 
     trening, validacioni, test = podeli_podatke(
         df, cfg["podaci"]["udeo_validacionog"], cfg["seed"])
