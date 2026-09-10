@@ -30,6 +30,9 @@ trening:
   lr_finog: 0.00001         # znatno manja stopa da se ne unistе naucena obelezja
   strpljenje: 5             # EarlyStopping: broj epoha bez napretka
   koristi_tezine_klasa: true
+  dropout: 0.3
+  udeo_odmrznutih: 0.3      # udeo gornjih slojeva osnove koji se fino podesava
+  glava_neurona: 0          # 0 = bez skrivenog sloja u klasifikacionoj glavi
 
 modeli:                     # modeli koji ulaze u poredjenje
   - cnn_od_nule

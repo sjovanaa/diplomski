@@ -10,10 +10,12 @@ koristi sva cetiri modela, cime je poredjenje metodoloski ispravno.
 import random
 from pathlib import Path
 
+import keras
 import numpy as np
 import pandas as pd
 import tensorflow as tf
 import yaml
+from keras import layers
 from sklearn.model_selection import train_test_split
 
 from .paths import KOREN_PROJEKTA, pronadji_skup_podataka
@@ -35,7 +37,7 @@ def postavi_seme(seed: int) -> None:
     random.seed(seed)
     np.random.seed(seed)
     tf.random.set_seed(seed)
-    tf.keras.utils.set_random_seed(seed)
+    keras.utils.set_random_seed(seed)
 
 
 # ---------------------------------------------------------------- indeksiranje
@@ -112,7 +114,8 @@ def _ucitaj_snimak(putanja, oznaka, visina, sirina):
     # channels=3 automatski prevodi jednokanalne (grayscale) snimke u tri kanala
     slika = tf.io.decode_image(bajtovi, channels=3, expand_animations=False)
     slika = tf.image.resize(slika, [visina, sirina], method="bilinear")
-    slika = tf.cast(slika, tf.float32)          # opseg ostaje [0, 255]
+    # Cuva se kao uint8: kes tada trosi cetiri puta manje memorije
+    slika = tf.cast(slika, tf.uint8)
     slika.set_shape([visina, sirina, 3])
     return slika, oznaka
 
@@ -135,10 +138,13 @@ def napravi_dataset(df: pd.DataFrame, klase: list, cfg: dict,
     ds = ds.batch(cfg["podaci"]["batch_size"])
     if kesiraj:
         ds = ds.cache()
+    # Konverzija u float32 tek posle kesiranja, opseg ostaje [0, 255]
+    ds = ds.map(lambda x, y: (tf.cast(x, tf.float32), y),
+                num_parallel_calls=AUTOTUNE)
     return ds.prefetch(AUTOTUNE)
 
 
-def slojevi_augmentacije(cfg: dict) -> tf.keras.Sequential:
+def slojevi_augmentacije(cfg: dict) -> keras.Sequential:
     """
     Slojevi vestackog prosirivanja skupa, aktivni samo tokom treninga.
 
@@ -149,15 +155,15 @@ def slojevi_augmentacije(cfg: dict) -> tf.keras.Sequential:
     a = cfg["augmentacija"]
     slojevi = []
     if a.get("horizontalno_ogledalo"):
-        slojevi.append(tf.keras.layers.RandomFlip("horizontal"))
+        slojevi.append(layers.RandomFlip("horizontal"))
     slojevi += [
-        tf.keras.layers.RandomRotation(a["rotacija"], fill_mode="constant"),
-        tf.keras.layers.RandomZoom(a["zum"], fill_mode="constant"),
-        tf.keras.layers.RandomTranslation(a["pomeraj"], a["pomeraj"],
+        layers.RandomRotation(a["rotacija"], fill_mode="constant"),
+        layers.RandomZoom(a["zum"], fill_mode="constant"),
+        layers.RandomTranslation(a["pomeraj"], a["pomeraj"],
                                           fill_mode="constant"),
-        tf.keras.layers.RandomContrast(a["kontrast"]),
+        layers.RandomContrast(a["kontrast"]),
     ]
-    return tf.keras.Sequential(slojevi, name="augmentacija")
+    return keras.Sequential(slojevi, name="augmentacija")
 
 
 def pripremi_sve(cfg: dict = None, ogranici: int = None):

@@ -133,7 +133,8 @@ def evaluiraj(ime, test_ds, klase, izlaz_korena):
         print(f"  preskacem {ime}: model nije pronadjen")
         return None
 
-    print(f"\nEvaluacija: {PUNA_IMENA[ime]}")
+    puno_ime = PUNA_IMENA.get(ime, ime)
+    print(f"\nEvaluacija: {puno_ime}")
     model = keras.models.load_model(putanja_modela)
     y_stvarno, y_pred, verovatnoce = predvidi(model, test_ds)
 
@@ -144,10 +145,10 @@ def evaluiraj(ime, test_ds, klase, izlaz_korena):
         y_stvarno, y_pred, average="weighted", zero_division=0)
 
     nacrtaj_matricu(y_stvarno, y_pred, klase,
-                    f"Matrica konfuzije - {PUNA_IMENA[ime]}",
+                    f"Matrica konfuzije - {puno_ime}",
                     direktorijum / "matrica_konfuzije.png")
     povrsine = nacrtaj_roc(y_stvarno, verovatnoce, klase,
-                           f"ROC krive - {PUNA_IMENA[ime]}",
+                           f"ROC krive - {puno_ime}",
                            direktorijum / "roc_krive.png")
 
     sazetak_putanja = direktorijum / "sazetak.json"
@@ -166,7 +167,7 @@ def evaluiraj(ime, test_ds, klase, izlaz_korena):
     print(po_klasama.round(3).to_string())
 
     return {
-        "Model": PUNA_IMENA[ime],
+        "Model": sazetak.get("puno_ime", puno_ime),
         "Accuracy": tacnost,
         "Precision (macro)": p_ma, "Recall (macro)": r_ma, "F1 (macro)": f_ma,
         "Precision (weighted)": p_pt, "Recall (weighted)": r_pt,
@@ -209,7 +210,14 @@ def main():
 
     skupovi, tabele, klase, cfg = pripremi_sve()
     izlaz = direktorijum_rezultata()
-    modeli = [args.model] if args.model else cfg["modeli"]
+    if args.model:
+        modeli = [args.model]
+    else:
+        # ukljucuju se i modeli nastali optimizacijom, kojih nema u config.yaml
+        dodatni = sorted(p.name for p in izlaz.iterdir()
+                         if p.is_dir() and p.name not in cfg["modeli"]
+                         and (p / "model.keras").exists())
+        modeli = list(cfg["modeli"]) + dodatni
 
     redovi = [r for r in (evaluiraj(ime, skupovi["test"], klase, izlaz)
                           for ime in modeli) if r]

@@ -9,7 +9,10 @@ Pokretanje iz korena projekta:
     python -m scripts.provera --ogranici 40
 """
 import argparse
+import os
 import sys
+
+os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
 
 import matplotlib.pyplot as plt
 import numpy as np

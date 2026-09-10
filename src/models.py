@@ -97,7 +97,7 @@ def _cnn_od_nule(ulaz, broj_klasa, dropout):
 
 # ---------------------------------------------------------------- transfer learning
 
-def _transfer(ulaz, ime, broj_klasa, dropout, oblik):
+def _transfer(ulaz, ime, broj_klasa, dropout, oblik, neurona=0):
     """
     Pretrenirana osnova sa novom klasifikacionom glavom.
 
@@ -117,6 +117,14 @@ def _transfer(ulaz, ime, broj_klasa, dropout, oblik):
 
     x = layers.GlobalAveragePooling2D(name="usrednjavanje")(x)
     x = layers.Dropout(dropout, name="dropout")(x)
+
+    # Opcioni skriveni sloj klasifikacione glave. Vrednost 0 znaci da se
+    # ide direktno na izlaz, sto je podrazumevano ponasanje.
+    if neurona:
+        x = layers.Dense(neurona, activation="relu", name="glava")(x)
+        x = layers.BatchNormalization(name="glava_bn")(x)
+        x = layers.Dropout(dropout, name="dropout_glava")(x)
+
     return layers.Dense(broj_klasa, activation="softmax", name="izlaz")(x)
 
 
@@ -137,7 +145,8 @@ def napravi_model(ime: str, broj_klasa: int, cfg: dict) -> keras.Model:
     if ime == "cnn_od_nule":
         izlaz = _cnn_od_nule(x, broj_klasa, dropout)
     else:
-        izlaz = _transfer(x, ime, broj_klasa, dropout, (v, s, k))
+        izlaz = _transfer(x, ime, broj_klasa, dropout, (v, s, k),
+                          cfg["trening"].get("glava_neurona", 0))
 
     return keras.Model(ulaz, izlaz, name=ime)
 

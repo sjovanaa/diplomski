@@ -4,11 +4,14 @@ Lociranje skupa podataka i izlaznih direktorijuma.
 Isti kod se izvrsava lokalno (Windows), na Kaggle-u i na Colab-u,
 pa se putanje nikada ne upisuju rucno.
 """
+from functools import lru_cache
 from pathlib import Path
 
 KOREN_PROJEKTA = Path(__file__).resolve().parent.parent
 
+
 KAGGLE_SKUP = "prashant268/chest-xray-covid19-pneumonia"
+
 
 def _trazi_koren(baza: Path):
     """Trazi direktorijum sa podfolderima train i test, na bilo kojoj dubini."""
@@ -22,6 +25,7 @@ def _trazi_koren(baza: Path):
     return None
 
 
+@lru_cache(maxsize=1)
 def pronadji_skup_podataka(dozvoli_preuzimanje: bool = True) -> Path:
     """
     Vraca direktorijum koji sadrzi podfoldere 'train' i 'test'.
