@@ -82,17 +82,27 @@ def jedno_pokretanje(ime, arhitektura, skupovi, tabele, klase, cfg):
               if arhitektura == "cnn_od_nule" else t["epohe_glava"])
     model.compile(optimizer=_optimizator(cfg, t["lr_glava"]),
                   loss="sparse_categorical_crossentropy", metrics=["accuracy"])
-    model.fit(skupovi["trening"], validation_data=skupovi["validacioni"],
-              epochs=epohe1, class_weight=tezine,
-              callbacks=_pozivi(skupovi["validacioni"], t["strpljenje"]), verbose=2)
+    h1 = model.fit(skupovi["trening"], validation_data=skupovi["validacioni"],
+                   epochs=epohe1, class_weight=tezine,
+                   callbacks=_pozivi(skupovi["validacioni"], t["strpljenje"]),
+                   verbose=2)
+    najbolji_f1 = max(h1.history["val_makro_f1"])
+    najbolje_tezine = model.get_weights()
 
     if arhitektura != "cnn_od_nule":
         odmrzni_osnovu(model, t.get("udeo_odmrznutih", 0.3))
         model.compile(optimizer=_optimizator(cfg, t["lr_finog"]),
                       loss="sparse_categorical_crossentropy", metrics=["accuracy"])
-        model.fit(skupovi["trening"], validation_data=skupovi["validacioni"],
-                  epochs=t["epohe_finog"], class_weight=tezine,
-                  callbacks=_pozivi(skupovi["validacioni"], t["strpljenje"]), verbose=2)
+        h2 = model.fit(skupovi["trening"], validation_data=skupovi["validacioni"],
+                       epochs=t["epohe_finog"], class_weight=tezine,
+                       callbacks=_pozivi(skupovi["validacioni"], t["strpljenje"]),
+                       verbose=2)
+        # Isto kao u scripts/trening.py: ako fino podesavanje nije pomoglo,
+        # vracaju se tezine faze 1, da se ne prijavi losiji model od najboljeg.
+        if max(h2.history["val_makro_f1"]) <= najbolji_f1:
+            model.set_weights(najbolje_tezine)
+        else:
+            najbolji_f1 = max(h2.history["val_makro_f1"])
 
     trajanje = time.time() - pocetak
 
@@ -115,6 +125,7 @@ def jedno_pokretanje(ime, arhitektura, skupovi, tabele, klase, cfg):
         "F1 (macro)": f_ma,
         "Recall COVID19": float(odziv_po_klasi[klase.index("COVID19")])
         if "COVID19" in klase else np.nan,
+        "val macro F1": round(float(najbolji_f1), 4),
         "Trajanje (min)": round(trajanje / 60, 1),
     }
 
@@ -124,11 +135,18 @@ def ucitaj_optimizovanu_konfiguraciju(cfg, arhitektura="densenet121"):
     putanja = direktorijum_rezultata() / f"{arhitektura}_opt" / "sazetak.json"
     if not putanja.exists():
         return None
-    naj = json.loads(putanja.read_text(encoding="utf-8")).get("najbolji_hiperparametri")
+    sazetak = json.loads(putanja.read_text(encoding="utf-8"))
+    naj = sazetak.get("najbolji_hiperparametri")
     if not naj:
         return None
 
     novi = copy.deepcopy(cfg)
+    # Ako je sacuvana cela konfiguracija finalnog treninga, koristi se ona -
+    # inace bi se optimizovani model ovde obucavao krace (drugi broj epoha i
+    # strpljenja) nego prilikom optimizacije, pa poredjenje ne bi bilo posteno.
+    if sazetak.get("konfiguracija_treninga"):
+        novi["trening"].update(sazetak["konfiguracija_treninga"])
+        return novi
     novi["trening"].update({
         "dropout": naj.get("dropout", cfg["trening"]["dropout"]),
         "glava_neurona": naj.get("glava_neurona", 0),

@@ -42,6 +42,11 @@ from src.paths import direktorijum_rezultata
 EPOHE_PRETRAGE_FAZA1 = 10   # skraceno u odnosu na finalni trening
 EPOHE_PRETRAGE_FAZA2 = 8
 
+# Prostor pretrage
+STOPE_GLAVE = [3e-3, 1e-3, 5e-4, 3e-4, 1e-4]
+STOPE_FINOG = [1e-4, 5e-5, 3e-5, 1e-5, 3e-6]
+UDEO_ODMRZNUTIH = [0.15, 0.3, 0.5, 0.7]
+
 
 class MakroF1(keras.callbacks.Callback):
     """Macro F1 na validacionom skupu posle svake epohe."""
@@ -89,10 +94,14 @@ class DvofazniModel(kt.HyperModel):
         cfg["trening"]["dropout"] = hp.Choice("dropout", [0.1, 0.2, 0.3, 0.4, 0.5])
         cfg["trening"]["glava_neurona"] = hp.Choice("glava_neurona", [0, 128, 256])
 
+        # Hiperparametri faze 2 se prijavljuju vec ovde, iako se koriste u fit().
+        # Bez toga ih prvi pokusaj ne bi imao u prostoru pretrage.
+        hp.Choice("udeo_odmrznutih", UDEO_ODMRZNUTIH)
+        hp.Choice("lr_finog", STOPE_FINOG)
+
         model = napravi_model(self.ime, len(self.klase), cfg)
         model.compile(
-            optimizer=_optimizator(hp, "lr_glava",
-                                   [3e-3, 1e-3, 5e-4, 3e-4, 1e-4]),
+            optimizer=_optimizator(hp, "lr_glava", STOPE_GLAVE),
             loss="sparse_categorical_crossentropy",
             metrics=["accuracy"])
         return model
@@ -106,10 +115,9 @@ class DvofazniModel(kt.HyperModel):
                        callbacks=pozivi, verbose=2)
 
         # ---- faza 2
-        odmrzni_osnovu(model, hp.Choice("udeo_odmrznutih", [0.15, 0.3, 0.5, 0.7]))
+        odmrzni_osnovu(model, hp.Choice("udeo_odmrznutih", UDEO_ODMRZNUTIH))
         model.compile(
-            optimizer=_optimizator(hp, "lr_finog",
-                                   [1e-4, 5e-5, 3e-5, 1e-5, 3e-6]),
+            optimizer=_optimizator(hp, "lr_finog", STOPE_FINOG),
             loss="sparse_categorical_crossentropy",
             metrics=["accuracy"])
 
@@ -223,9 +231,6 @@ def main():
     def pozivi(faza):
         return [
             MakroF1(skupovi["validacioni"]),
-            keras.callbacks.ModelCheckpoint(
-                direktorijum / "model.keras", monitor="val_makro_f1",
-                mode="max", save_best_only=True, verbose=0),
             keras.callbacks.EarlyStopping(
                 monitor="val_makro_f1", mode="max", patience=t["strpljenje"],
                 restore_best_weights=True, verbose=1),
@@ -241,6 +246,8 @@ def main():
     h1 = model.fit(skupovi["trening"], validation_data=skupovi["validacioni"],
                    epochs=t["epohe_glava"], class_weight=tezine,
                    callbacks=pozivi(1), verbose=1)
+    najbolji_f1 = max(h1.history["val_makro_f1"])
+    najbolje_tezine = model.get_weights()
 
     odmrzni_osnovu(model, t["udeo_odmrznutih"])
     model.compile(optimizer=_finalni_optimizator(najbolji.values, t["lr_finog"]),
@@ -248,6 +255,11 @@ def main():
     h2 = model.fit(skupovi["trening"], validation_data=skupovi["validacioni"],
                    epochs=t["epohe_finog"], class_weight=tezine,
                    callbacks=pozivi(2), verbose=1)
+    if max(h2.history["val_makro_f1"]) <= najbolji_f1:
+        print("\nFaza 2 nije nadmasila fazu 1; vracaju se tezine faze 1.")
+        model.set_weights(najbolje_tezine)
+    else:
+        najbolji_f1 = max(h2.history["val_makro_f1"])
     trajanje = time.time() - pocetak
 
     model.save(direktorijum / "model.keras")
@@ -257,7 +269,9 @@ def main():
             "puno_ime": f"{PUNA_IMENA[args.model]} (optimizovan)",
             "osnovni_model": args.model,
             "najbolji_hiperparametri": najbolji.values,
+            "konfiguracija_treninga": cfg_opt["trening"],
             "broj_pokusaja": args.pokusaja,
+            "najbolji_val_makro_f1": round(float(najbolji_f1), 4),
             "trajanje_pretrage_sekundi": round(trajanje_pretrage, 1),
             "trajanje_sekundi": round(trajanje, 1),
             "trajanje_citljivo": f"{int(trajanje // 60)} min {int(trajanje % 60)} s",

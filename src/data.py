@@ -129,16 +129,24 @@ def napravi_dataset(df: pd.DataFrame, klase: list, cfg: dict,
 
     v, s = cfg["slika"]["visina"], cfg["slika"]["sirina"]
     ds = tf.data.Dataset.from_tensor_slices((putanje, oznake))
-
-    if mesaj:
-        ds = ds.shuffle(min(len(df), cfg["podaci"]["mesaj_bafer"]),
-                        seed=cfg["seed"], reshuffle_each_iteration=True)
-
     ds = ds.map(lambda p, o: _ucitaj_snimak(p, o, v, s), num_parallel_calls=AUTOTUNE)
-    ds = ds.batch(cfg["podaci"]["batch_size"])
+
+    # Redosled operacija je bitan. Kesira se posle dekodovanja, a PRE mesanja
+    # i grupisanja. Kada bi kes bio posle batch(), u prvoj epohi bi se zapamtili
+    # gotovi batch-evi, pa se mesanje u narednim epohama ne bi ni izvrsavalo -
+    # model bi svaku epohu video identicne batch-eve istim redosledom.
     if kesiraj:
         ds = ds.cache()
-    # Konverzija u float32 tek posle kesiranja, opseg ostaje [0, 255]
+
+    if mesaj:
+        # Bafer obuhvata ceo skup: delimican bafer bi pri sortiranom ulazu
+        # ostavio uzastopne primere iste klase u istom batch-u.
+        bafer = cfg["podaci"].get("mesaj_bafer") or 0
+        ds = ds.shuffle(max(bafer, len(df)),
+                        seed=cfg["seed"], reshuffle_each_iteration=True)
+
+    ds = ds.batch(cfg["podaci"]["batch_size"])
+    # Konverzija u float32 tek na kraju, opseg ostaje [0, 255]
     ds = ds.map(lambda x, y: (tf.cast(x, tf.float32), y),
                 num_parallel_calls=AUTOTUNE)
     return ds.prefetch(AUTOTUNE)

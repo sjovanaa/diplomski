@@ -42,21 +42,26 @@ class MakroF1(keras.callbacks.Callback):
     def __init__(self, validacioni):
         super().__init__()
         self.validacioni = validacioni
+        self.y_stvarno = None      # racuna se jednom, ne u svakoj epohi
 
     def on_epoch_end(self, epoha, dnevnik=None):
-        dnevnik = dnevnik or {}
-        y_stvarno = np.concatenate([o.numpy() for _, o in self.validacioni])
+        # dnevnik je prazan recnik kada ga Keras prosledi, pa provera mora
+        # biti na None - "or {}" bi napravio novi recnik i metrika bi se
+        # izgubila pre nego sto je ostali povratni pozivi procitaju.
+        dnevnik = dnevnik if dnevnik is not None else {}
+        if self.y_stvarno is None:
+            self.y_stvarno = np.concatenate([o.numpy() for _, o in self.validacioni])
         y_pred = np.argmax(self.model.predict(self.validacioni, verbose=0), axis=1)
-        dnevnik["val_makro_f1"] = f1_score(y_stvarno, y_pred, average="macro")
+        dnevnik["val_makro_f1"] = f1_score(self.y_stvarno, y_pred, average="macro")
         print(f"   val_makro_f1: {dnevnik['val_makro_f1']:.4f}")
 
 
 def _povratni_pozivi(validacioni, izlaz, strpljenje, faza):
+    # ModelCheckpoint se namerno ne koristi: cuvao bi najbolji model unutar
+    # jedne faze, pa bi faza 2 prepisala bolji rezultat faze 1. Model se cuva
+    # eksplicitno, tek posle poredjenja obe faze.
     return [
         MakroF1(validacioni),
-        keras.callbacks.ModelCheckpoint(
-            izlaz / "model.keras", monitor="val_makro_f1", mode="max",
-            save_best_only=True, verbose=0),
         keras.callbacks.EarlyStopping(
             monitor="val_makro_f1", mode="max", patience=strpljenje,
             restore_best_weights=True, verbose=1),
@@ -105,6 +110,9 @@ def obuci(ime, skupovi, tabele, klase, cfg):
                                               t["strpljenje"], 1),
                    verbose=1)
     istorija["faza1"] = {k: [float(v) for v in vr] for k, vr in h1.history.items()}
+    najbolji_f1 = max(h1.history["val_makro_f1"])
+    najbolje_tezine = model.get_weights()      # snimak najboljih tezina faze 1
+    najbolja_faza = 1
 
     # ------------------------------------------------ faza 2
     if ime != "cnn_od_nule":
@@ -125,6 +133,16 @@ def obuci(ime, skupovi, tabele, klase, cfg):
                        verbose=1)
         istorija["faza2"] = {k: [float(v) for v in vr] for k, vr in h2.history.items()}
 
+        f1_faza2 = max(h2.history["val_makro_f1"])
+        if f1_faza2 > najbolji_f1:
+            najbolji_f1, najbolja_faza = f1_faza2, 2
+        else:
+            # Fino podesavanje nije donelo poboljsanje - vracaju se tezine faze 1.
+            print(f"\nFaza 2 ({f1_faza2:.4f}) nije nadmasila fazu 1 "
+                  f"({najbolji_f1:.4f}); vracaju se tezine faze 1.")
+            model.set_weights(najbolje_tezine)
+
+    print(f"\nNajbolji val_makro_f1: {najbolji_f1:.4f} (faza {najbolja_faza})")
     trajanje = time.time() - pocetak
 
     # ------------------------------------------------ cuvanje
@@ -132,6 +150,8 @@ def obuci(ime, skupovi, tabele, klase, cfg):
     sazetak = {
         "model": ime,
         "puno_ime": PUNA_IMENA[ime],
+        "najbolji_val_makro_f1": round(float(najbolji_f1), 4),
+        "najbolja_faza": najbolja_faza,
         "parametri": param,
         "trajanje_sekundi": round(trajanje, 1),
         "trajanje_citljivo": f"{int(trajanje // 60)} min {int(trajanje % 60)} s",
