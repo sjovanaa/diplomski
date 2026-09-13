@@ -25,7 +25,7 @@ import numpy as np
 import tensorflow as tf
 from sklearn.metrics import f1_score
 
-from src.data import pripremi_sve, tezine_klasa
+from src.data import pripremi_sve, tezine_klasa, ucitaj_konfiguraciju
 from src.models import PUNA_IMENA, broj_parametara, napravi_model, odmrzni_osnovu
 from src.paths import direktorijum_rezultata
 
@@ -56,6 +56,19 @@ class MakroF1(keras.callbacks.Callback):
         print(f"   val_makro_f1: {dnevnik['val_makro_f1']:.4f}")
 
 
+def _adam(stopa, t):
+    """
+    Adam sa odsecanjem norme gradijenta.
+
+    Odsecanje ogranicava duzinu vektora gradijenta pre koraka azuriranja.
+    Time se sprecavaju pojedinacni koraci koji izbace model iz dobrog
+    resenja - uzrok naglih skokova validacionog gubitka.
+    """
+    clip = t.get("clipnorm", 0)
+    return (keras.optimizers.Adam(stopa, clipnorm=clip) if clip
+            else keras.optimizers.Adam(stopa))
+
+
 def _povratni_pozivi(validacioni, izlaz, strpljenje, faza):
     # ModelCheckpoint se namerno ne koristi: cuvao bi najbolji model unutar
     # jedne faze, pa bi faza 2 prepisala bolji rezultat faze 1. Model se cuva
@@ -72,8 +85,8 @@ def _povratni_pozivi(validacioni, izlaz, strpljenje, faza):
     ]
 
 
-def obuci(ime, skupovi, tabele, klase, cfg):
-    izlaz = direktorijum_rezultata() / ime
+def obuci(ime, skupovi, tabele, klase, cfg, sufiks=""):
+    izlaz = direktorijum_rezultata() / (ime + sufiks)
     izlaz.mkdir(parents=True, exist_ok=True)
 
     t = cfg["trening"]
@@ -93,14 +106,16 @@ def obuci(ime, skupovi, tabele, klase, cfg):
     # ------------------------------------------------ faza 1
     if ime == "cnn_od_nule":
         epohe = t["epohe_glava"] + t["epohe_finog"]
-        stopa = t["lr_glava"]
+        # Mreza koja uci od nule polazi od nasumicnih tezina, pa joj stopa
+        # pogodna za transfer learning izaziva eksploziju gradijenta.
+        stopa = t.get("lr_cnn", t["lr_glava"])
         print(f"\nJednofazno obucavanje ({epohe} epoha, lr={stopa})")
     else:
         epohe = t["epohe_glava"]
         stopa = t["lr_glava"]
         print(f"\nFAZA 1 - zamrznuta osnova ({epohe} epoha, lr={stopa})")
 
-    model.compile(optimizer=keras.optimizers.Adam(stopa),
+    model.compile(optimizer=_adam(stopa, t),
                   loss="sparse_categorical_crossentropy",
                   metrics=["accuracy"])
 
@@ -122,7 +137,7 @@ def obuci(ime, skupovi, tabele, klase, cfg):
 
         # Obavezno ponovno kompajliranje: bez njega Keras ne registruje
         # promenu statusa 'trainable' na slojevima osnove.
-        model.compile(optimizer=keras.optimizers.Adam(t["lr_finog"]),
+        model.compile(optimizer=_adam(t["lr_finog"], t),
                       loss="sparse_categorical_crossentropy",
                       metrics=["accuracy"])
 
@@ -148,8 +163,8 @@ def obuci(ime, skupovi, tabele, klase, cfg):
     # ------------------------------------------------ cuvanje
     model.save(izlaz / "model.keras")
     sazetak = {
-        "model": ime,
-        "puno_ime": PUNA_IMENA[ime],
+        "model": ime + sufiks,
+        "puno_ime": PUNA_IMENA[ime] + (" (isecen)" if sufiks else ""),
         "najbolji_val_makro_f1": round(float(najbolji_f1), 4),
         "najbolja_faza": najbolja_faza,
         "parametri": param,
@@ -172,10 +187,18 @@ def main():
     p.add_argument("--svi", action="store_true", help="svi modeli iz config.yaml")
     p.add_argument("--brzo", action="store_true",
                    help="mali uzorak i 2 epohe - samo provera ispravnosti")
+    p.add_argument("--isecanje", action="store_true",
+                   help="obucava na isecenim snimcima (samo grudni kos)")
     args = p.parse_args()
 
     ogranici = 60 if args.brzo else None
-    skupovi, tabele, klase, cfg = pripremi_sve(ogranici=ogranici)
+    cfg_polazni = ucitaj_konfiguraciju()
+    sufiks = ""
+    if args.isecanje:
+        cfg_polazni["isecanje"]["aktivno"] = True
+        sufiks = "_isecen"     # rezultati se cuvaju odvojeno, radi poredjenja
+        print("Isecanje je ukljuceno:", cfg_polazni["isecanje"])
+    skupovi, tabele, klase, cfg = pripremi_sve(cfg=cfg_polazni, ogranici=ogranici)
 
     if args.brzo:
         cfg["trening"]["epohe_glava"] = 2
@@ -190,7 +213,7 @@ def main():
     if not modeli or modeli == [None]:
         p.error("navedi --model IME ili --svi")
 
-    sazeci = [obuci(ime, skupovi, tabele, klase, cfg) for ime in modeli]
+    sazeci = [obuci(ime, skupovi, tabele, klase, cfg, sufiks) for ime in modeli]
 
     print("\n" + "=" * 70)
     print("SVI MODELI ZAVRSENI")

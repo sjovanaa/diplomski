@@ -52,10 +52,14 @@ class MakroF1(keras.callbacks.Callback):
 
 
 def _optimizator(cfg, stopa):
-    if cfg["trening"].get("optimizator") == "adamw":
+    """Optimizator sa odsecanjem norme gradijenta."""
+    t = cfg["trening"]
+    clip = t.get("clipnorm", 0)
+    dodatno = {"clipnorm": clip} if clip else {}
+    if t.get("optimizator") == "adamw":
         return keras.optimizers.AdamW(
-            stopa, weight_decay=cfg["trening"].get("opadanje_tezina", 1e-4))
-    return keras.optimizers.Adam(stopa)
+            stopa, weight_decay=t.get("opadanje_tezina", 1e-4), **dodatno)
+    return keras.optimizers.Adam(stopa, **dodatno)
 
 
 def _pozivi(validacioni, strpljenje):
@@ -80,7 +84,9 @@ def jedno_pokretanje(ime, arhitektura, skupovi, tabele, klase, cfg):
 
     epohe1 = (t["epohe_glava"] + t["epohe_finog"]
               if arhitektura == "cnn_od_nule" else t["epohe_glava"])
-    model.compile(optimizer=_optimizator(cfg, t["lr_glava"]),
+    stopa1 = (t.get("lr_cnn", t["lr_glava"])
+              if arhitektura == "cnn_od_nule" else t["lr_glava"])
+    model.compile(optimizer=_optimizator(cfg, stopa1),
                   loss="sparse_categorical_crossentropy", metrics=["accuracy"])
     h1 = model.fit(skupovi["trening"], validation_data=skupovi["validacioni"],
                    epochs=epohe1, class_weight=tezine,

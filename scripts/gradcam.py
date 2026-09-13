@@ -27,16 +27,20 @@ import numpy as np
 import tensorflow as tf
 
 import src.models  # registruje sloj Normalizacija
-from src.data import indeksiraj_snimke, imena_klasa, podeli_podatke, ucitaj_konfiguraciju
+from src.data import (_iseci, indeksiraj_snimke, imena_klasa, podeli_podatke,
+                      ucitaj_konfiguraciju)
 from src.models import PUNA_IMENA, pronadji_osnovu
 from src.paths import direktorijum_rezultata
 
 plt.rcParams.update({"savefig.dpi": 300, "savefig.bbox": "tight", "font.size": 10})
 
 
-def ucitaj_snimak(putanja, visina, sirina):
+def ucitaj_snimak(putanja, visina, sirina, isecanje=None):
+    """Priprema snimak isto kao u treningu, ukljucujuci isecanje ako je bilo."""
     bajtovi = tf.io.read_file(putanja)
     slika = tf.io.decode_image(bajtovi, channels=3, expand_animations=False)
+    if isecanje and isecanje.get("aktivno"):
+        slika = _iseci(slika, isecanje)
     slika = tf.image.resize(slika, [visina, sirina], method="bilinear")
     return tf.cast(slika, tf.float32)
 
@@ -52,6 +56,12 @@ def toplotna_mapa(model, slika, klasa=None):
     if osnova is None:
         return None, None
 
+    # Slojevi glave se ne navode po imenu, nego se uzimaju svi slojevi posle
+    # osnove. Time metoda radi i za modele sa dodatnim skrivenim slojem u
+    # glavi, kakav nastaje optimizacijom hiperparametara.
+    indeks_osnove = model.layers.index(osnova)
+    glava = model.layers[indeks_osnove + 1:]
+
     ulaz = tf.expand_dims(slika, 0)
 
     with tf.GradientTape() as traka:
@@ -59,9 +69,10 @@ def toplotna_mapa(model, slika, klasa=None):
         obelezja = osnova(x, training=False)      # poslednja konvoluciona mapa
         traka.watch(obelezja)
 
-        h = model.get_layer("usrednjavanje")(obelezja)
-        h = model.get_layer("dropout")(h, training=False)
-        predikcija = model.get_layer("izlaz")(h)
+        h = obelezja
+        for sloj in glava:
+            h = sloj(h, training=False)
+        predikcija = h
 
         if klasa is None:
             klasa = int(tf.argmax(predikcija[0]))
@@ -78,11 +89,11 @@ def toplotna_mapa(model, slika, klasa=None):
     return mapa, (klasa, float(predikcija[0, klasa]))
 
 
-def nacrtaj(ime, model, primeri, klase, visina, sirina, putanja):
+def nacrtaj(ime, model, primeri, klase, visina, sirina, putanja, isecanje=None):
     fig, ose = plt.subplots(2, len(primeri), figsize=(3 * len(primeri), 6.4))
 
     for j, (put, stvarna) in enumerate(primeri):
-        slika = ucitaj_snimak(put, visina, sirina)
+        slika = ucitaj_snimak(put, visina, sirina, isecanje)
         mapa, (pred, poverenje) = toplotna_mapa(model, slika)
         sivo = slika.numpy().astype("uint8")
 
@@ -98,7 +109,7 @@ def nacrtaj(ime, model, primeri, klase, visina, sirina, putanja):
         for osa in (ose[0, j], ose[1, j]):
             osa.axis("off")
 
-    fig.suptitle(f"Grad-CAM - {PUNA_IMENA[ime]}", fontsize=13)
+    fig.suptitle(f"Grad-CAM - {PUNA_IMENA.get(ime, ime)}", fontsize=13)
     plt.tight_layout()
     plt.savefig(putanja)
     plt.close()
@@ -124,7 +135,13 @@ def main():
         primeri += [(r.putanja, k) for _, r in uzorak.iterrows()]
 
     izlaz = direktorijum_rezultata()
-    modeli = [args.model] if args.model else cfg["modeli"]
+    if args.model:
+        modeli = [args.model]
+    else:
+        dodatni = sorted(p.name for p in izlaz.iterdir()
+                         if p.is_dir() and p.name not in cfg["modeli"]
+                         and (p / "model.keras").exists())
+        modeli = list(cfg["modeli"]) + dodatni
 
     for ime in modeli:
         putanja_modela = izlaz / ime / "model.keras"
@@ -134,8 +151,11 @@ def main():
         if pronadji_osnovu(model) is None:
             print(f"Preskacem {ime}: nema ugnezdenu osnovu.")
             continue
-        print(f"Grad-CAM: {PUNA_IMENA[ime]}")
-        nacrtaj(ime, model, primeri, klase, v, s, izlaz / ime / "gradcam.png")
+        print(f"Grad-CAM: {PUNA_IMENA.get(ime, ime)}")
+        # Model obucen na isecenim snimcima mora se i ovde gledati na isecenim
+        isec = dict(cfg["isecanje"], aktivno=ime.endswith("_isecen"))
+        nacrtaj(ime, model, primeri, klase, v, s,
+                izlaz / ime / "gradcam.png", isec)
 
 
 if __name__ == "__main__":

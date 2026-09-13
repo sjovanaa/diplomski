@@ -109,10 +109,32 @@ def tezine_klasa(trening: pd.DataFrame, klase: list) -> dict:
 
 # ---------------------------------------------------------------- tf.data
 
-def _ucitaj_snimak(putanja, oznaka, visina, sirina):
+def _iseci(slika, isecanje):
+    """
+    Uklanja pojaseve van grudnog kosa: vrat i ramena odozgo, trbuh odozdo,
+    uske trake sa strana.
+
+    Svrha je da se modelu oduzme mogucnost da odluku donosi na osnovu
+    oblasti koje ne sadrze plucno tkivo. Isecanje se radi PRE skaliranja,
+    da bi preostali deo zadrzao punu rezoluciju.
+    """
+    oblik = tf.shape(slika)
+    v, s = oblik[0], oblik[1]
+
+    gore = tf.cast(tf.cast(v, tf.float32) * isecanje["gore"], tf.int32)
+    dole = tf.cast(tf.cast(v, tf.float32) * isecanje["dole"], tf.int32)
+    strana = tf.cast(tf.cast(s, tf.float32) * isecanje["strane"], tf.int32)
+
+    return tf.image.crop_to_bounding_box(
+        slika, gore, strana, v - gore - dole, s - 2 * strana)
+
+
+def _ucitaj_snimak(putanja, oznaka, visina, sirina, isecanje=None):
     bajtovi = tf.io.read_file(putanja)
     # channels=3 automatski prevodi jednokanalne (grayscale) snimke u tri kanala
     slika = tf.io.decode_image(bajtovi, channels=3, expand_animations=False)
+    if isecanje and isecanje.get("aktivno"):
+        slika = _iseci(slika, isecanje)
     slika = tf.image.resize(slika, [visina, sirina], method="bilinear")
     # Cuva se kao uint8: kes tada trosi cetiri puta manje memorije
     slika = tf.cast(slika, tf.uint8)
@@ -128,8 +150,10 @@ def napravi_dataset(df: pd.DataFrame, klase: list, cfg: dict,
     oznake = df["klasa"].map(indeks).to_numpy().astype("int32")
 
     v, s = cfg["slika"]["visina"], cfg["slika"]["sirina"]
+    isecanje = cfg.get("isecanje")
     ds = tf.data.Dataset.from_tensor_slices((putanje, oznake))
-    ds = ds.map(lambda p, o: _ucitaj_snimak(p, o, v, s), num_parallel_calls=AUTOTUNE)
+    ds = ds.map(lambda p, o: _ucitaj_snimak(p, o, v, s, isecanje),
+                num_parallel_calls=AUTOTUNE)
 
     # Redosled operacija je bitan. Kesira se posle dekodovanja, a PRE mesanja
     # i grupisanja. Kada bi kes bio posle batch(), u prvoj epohi bi se zapamtili

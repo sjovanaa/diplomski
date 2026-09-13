@@ -13,6 +13,7 @@ Pokretanje:
     python -m scripts.evaluacija --model resnet50
 """
 import argparse
+import copy
 import json
 import os
 
@@ -180,7 +181,7 @@ def evaluiraj(ime, test_ds, klase, izlaz_korena):
     }
 
 
-def uporedni_grafikon(tab, putanja):
+def uporedni_grafikon(tab, putanja, osnovna_linija):
     metrike = ["Accuracy", "Precision (macro)", "Recall (macro)", "F1 (macro)"]
     x = np.arange(len(metrike))
     sirina = 0.8 / len(tab)
@@ -193,8 +194,10 @@ def uporedni_grafikon(tab, putanja):
                           color=BOJE_MODELA[i % len(BOJE_MODELA)])
         osa.bar_label(stubici, fmt="%.3f", fontsize=7, rotation=90, padding=2)
 
-    osa.axhline(0.664, color="black", ls=":", lw=1.2)
-    osa.text(len(metrike) - 0.5, 0.672, "tacnost trivijalnog klasifikatora",
+    # Tacnost klasifikatora koji uvek predvidja najbrojniju klasu.
+    osa.axhline(osnovna_linija, color="black", ls=":", lw=1.2)
+    osa.text(len(metrike) - 0.5, osnovna_linija + 0.008,
+             f"trivijalni klasifikator ({osnovna_linija:.3f})",
              fontsize=8, ha="right")
     osa.set_xticks(x, metrike)
     osa.set_ylim(0, 1.12); osa.set_ylabel("Vrednost metrike")
@@ -210,6 +213,12 @@ def main():
 
     skupovi, tabele, klase, cfg = pripremi_sve()
     izlaz = direktorijum_rezultata()
+
+    # Modeli obuceni na isecenim snimcima moraju se meriti na isto pripremljenom
+    # test skupu, inace bi im ulaz bio drugaciji nego pri obucavanju.
+    cfg_isecen = copy.deepcopy(cfg)
+    cfg_isecen["isecanje"]["aktivno"] = True
+    skupovi_isecen, _, _, _ = pripremi_sve(cfg=cfg_isecen)
     if args.model:
         modeli = [args.model]
     else:
@@ -219,15 +228,21 @@ def main():
                          and (p / "model.keras").exists())
         modeli = list(cfg["modeli"]) + dodatni
 
-    redovi = [r for r in (evaluiraj(ime, skupovi["test"], klase, izlaz)
-                          for ime in modeli) if r]
+    redovi = [r for r in (
+        evaluiraj(ime,
+                  skupovi_isecen["test"] if ime.endswith("_isecen")
+                  else skupovi["test"],
+                  klase, izlaz)
+        for ime in modeli) if r]
     if not redovi:
         print("Nijedan model nije evaluiran.")
         return
 
     tab = pd.DataFrame(redovi).sort_values("F1 (macro)", ascending=False)
     tab.round(4).to_csv(izlaz / "tabela_4_poredjenje_modela.csv", index=False)
-    uporedni_grafikon(tab, izlaz / "grafikon_poredjenje_modela.png")
+
+    osnovna_linija = tabele["test"]["klasa"].value_counts(normalize=True).max()
+    uporedni_grafikon(tab, izlaz / "grafikon_poredjenje_modela.png", osnovna_linija)
 
     print("\n" + "=" * 100)
     print("UPOREDNI PREGLED NA TEST SKUPU")
@@ -237,6 +252,8 @@ def main():
                   "Trajanje (min)"]]
     print(prikaz.round(4).to_string(index=False))
     print("=" * 100)
+    print(f"Tacnost trivijalnog klasifikatora (uvek najbrojnija klasa): "
+          f"{osnovna_linija:.4f}")
     print(f"\nSve sacuvano u: {izlaz}")
 
 

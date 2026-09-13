@@ -11,6 +11,12 @@ slika:
   sirina: 224
   kanali: 3                 # ImageNet tezine ocekuju tri kanala
 
+isecanje:                   # uklanjanje oblasti van grudnog kosa
+  aktivno: false            # ukljucuje se zastavicom --isecanje
+  gore: 0.15                # udeo visine koji se uklanja odozgo (vrat, ramena)
+  dole: 0.08                # udeo visine koji se uklanja odozdo (trbuh)
+  strane: 0.08              # udeo sirine koji se uklanja sa svake strane
+
 podaci:
   udeo_validacionog: 0.15   # udeo trening skupa izdvojen za validaciju
   batch_size: 32
@@ -33,6 +39,8 @@ trening:
   dropout: 0.3
   udeo_odmrznutih: 0.3      # udeo gornjih slojeva osnove koji se fino podesava
   glava_neurona: 0          # 0 = bez skrivenog sloja u klasifikacionoj glavi
+  lr_cnn: 0.0003            # zasebna, manja stopa za mrezu koja uci od nule
+  clipnorm: 1.0             # odsecanje norme gradijenta (0 = iskljuceno)
 
 modeli:                     # modeli koji ulaze u poredjenje
   - cnn_od_nule
